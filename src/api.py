@@ -1,16 +1,29 @@
 import requests
-from typing import Dict,List
+from typing import Dict, List
 from bs4 import BeautifulSoup
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 class CCTVVideoDownloaderAPI:
     def __init__(self):
         self._COLUMN_INFO = None
 
-    def get_video_list(self, id:str) -> Dict[str, List[str]]:
-        api_url = f"https://api.cntv.cn/NewVideo/getVideoListByColumn?id={id}&n=20&sort=desc&p=1&mode=0&serviceId=tvcctv"
+    def get_video_list(self, video_id: str) -> Dict[str, List[str]]:
+        # api_url = f"https://api.cntv.cn/NewVideo/getVideoListByColumn?id={id}&n=20&sort=desc&p=1&mode=0&serviceId=tvcctv"
+        api_url = f"https://api.cntv.cn/NewVideo/getVideoListByAlbumIdNew?id={video_id}&serviceId=tvcctv&pub=1&mode=0&part=0&n=36&sort=asc"
         response = requests.get(api_url, timeout=10)
+        logger.debug(response.text)
+        logger.debug(api_url)
         # json格式解析
+
+        if 'msg' in response.text:
+            logger.error(f'get_video_list 解析错误: vid={video_id}')
+            return
+
         resp_format = response.json()
+
         list_detials = resp_format["data"]["list"]
         # 定义列表
         list_information = []
@@ -19,7 +32,7 @@ class CCTVVideoDownloaderAPI:
         index = 0
         # 遍历
         for i in list_detials:
-            guid, time, title, image, brief = i["guid"], i["time"], i["title"], i["image"], i["brief"]    
+            guid, time, title, image, brief = i["guid"], i["time"], i["title"], i["image"], i["brief"]
             list_tmp = [guid, time, title, image, brief]
             list_information.append(list_tmp)
             list_index.append(index)
@@ -28,7 +41,7 @@ class CCTVVideoDownloaderAPI:
         dict_information = dict(zip(list_index, list_information))
         self._COLUMN_INFO = dict_information
         return self._COLUMN_INFO
-    
+
     def get_column_info(self, index: int) -> Dict[str, str]:
         if self._COLUMN_INFO != None:
             video_info = self._COLUMN_INFO[index]
@@ -44,23 +57,18 @@ class CCTVVideoDownloaderAPI:
                     image = None
             except Exception:
                 image = None
-            column_info = {
-                "time": time,
-                "title": title,
-                "brief": brief,
-                "image": image
-                
-            }
+            column_info = {"time": time, "title": title, "brief": brief, "image": image}
             return column_info
-        
-    def brief_formating(self, s:str) -> str:
+
+    def brief_formating(self, s: str) -> str:
         '''格式化介绍信息'''
         # 首先替换所有空格和\r为换行符
         replaced = s.replace(' ', '\n')
         replaced = replaced.replace('\r', '\n')
-        
+
         # 消除连续的换行符
         import re
+
         result = re.sub(r'\n+', '\n', replaced)
 
         # string = ""
@@ -68,18 +76,16 @@ class CCTVVideoDownloaderAPI:
         #     string += result[i:i+13] + '\n'
 
         return result
-    
 
-    
     #  已弃用
-    def _get_http_video_info(self, guid:str) -> Dict:
+    def _get_http_video_info(self, guid: str) -> Dict:
         api_url = f"https://vdn.apps.cntv.cn/api/getHttpVideoInfo.do?pid={guid}"
         response = requests.get(api_url, timeout=10)
         # json格式解析
         resp_format = response.json()
         return resp_format
-    
-    def get_m3u8_urls_450(self, guid:str) -> List:
+
+    def get_m3u8_urls_450(self, guid: str) -> List:
         api_url = f"https://vdn.apps.cntv.cn/api/getHttpVideoInfo.do?pid={guid}"
         response = requests.get(api_url, timeout=10)
         resp_format = response.json()
@@ -90,7 +96,7 @@ class CCTVVideoDownloaderAPI:
         # 切分
         main_m3u8_list = main_m3u8_txt.split("\n")
         HD_m3u8_url = main_m3u8_list[-2]
-        hls_head = hls_enc2_url.split("/")[2] # eg:dhls2.cntv.qcloudcdn.com
+        hls_head = hls_enc2_url.split("/")[2]  # eg:dhls2.cntv.qcloudcdn.com
         HD_m3u8_url = "https://" + hls_head + HD_m3u8_url
         # 获取2000.m3u8，即高清m3u8文件，内含ts
         video_m3u8 = requests.get(HD_m3u8_url)
@@ -98,6 +104,7 @@ class CCTVVideoDownloaderAPI:
         video_m3u8_list = video_m3u8.text.split("\n")
         video_list = []
         import re
+
         for i in video_m3u8_list:
             if re.match(r"\d+.ts", i):
                 video_list.append(i)
@@ -109,8 +116,8 @@ class CCTVVideoDownloaderAPI:
             urls.append(tmp)
         # print(urls)
         return urls
-    
-    def get_play_column_info(self, url:str) -> List:
+
+    def get_play_column_info(self, url: str) -> List:
         '''从视频播放页链接获取栏目标题和ID'''
         try:
             response = requests.get(url, timeout=5)
@@ -123,6 +130,7 @@ class CCTVVideoDownloaderAPI:
         # 查找script
         script_tags = soup.find_all("script")
         import re
+
         # 取第一个script标签
         script = str(script_tags[0])
         # 匹配标题和ID
@@ -138,13 +146,11 @@ class CCTVVideoDownloaderAPI:
         else:
             return None
 
-        
-        
-    
-            
+
 if __name__ == "__main__":
     api = CCTVVideoDownloaderAPI()
     import json
+
     list1 = api.get_video_list("TOPC1451464665008914")
     print(list1)
     # list2 = api._get_http_video_info("8665a11a622e5601e64663a77355af15")
@@ -154,6 +160,3 @@ if __name__ == "__main__":
     # tmp = api.get_column_info(0)
     # print(tmp)
     # print(api.get_play_column_info("https://tv.cctv.com/2024/06/21/VIDEs2DfNN70XHJ1OySUipyV240621.shtml?spm=C31267.PXDaChrrDGdt.EbD5Beq0unIQ.3"))
-
-
-
