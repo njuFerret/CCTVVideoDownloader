@@ -2,20 +2,30 @@ import requests
 from typing import Dict, List
 from bs4 import BeautifulSoup
 import logging
+from urllib import parse
+import pathlib
 
 logger = logging.getLogger(__name__)
+
+# fmt:off
+# 视频合集基本信息
+api_collection_url = 'https://api.cntv.cn/NewVideoset/getVideoAlbumInfoByVideoId?id={}&serviceId=tvcctv'
+# 视频合集详细信息
+api_video_url = "https://api.cntv.cn/NewVideo/getVideoListByAlbumIdNew?id={}&serviceId=tvcctv&pub=1&mode=0&part=0&n=36&sort=asc"
+
+# fmt:on
 
 
 class CCTVVideoDownloaderAPI:
     def __init__(self):
         self._COLUMN_INFO = None
+        # self.sess = requests.session
 
     def get_video_list(self, video_id: str) -> Dict[str, List[str]]:
         # api_url = f"https://api.cntv.cn/NewVideo/getVideoListByColumn?id={id}&n=20&sort=desc&p=1&mode=0&serviceId=tvcctv"
-        api_url = f"https://api.cntv.cn/NewVideo/getVideoListByAlbumIdNew?id={video_id}&serviceId=tvcctv&pub=1&mode=0&part=0&n=36&sort=asc"
+        api_url = api_video_url.format(video_id)
         response = requests.get(api_url, timeout=10)
         logger.debug(response.text)
-        logger.debug(api_url)
         # json格式解析
 
         if 'msg' in response.text:
@@ -119,32 +129,40 @@ class CCTVVideoDownloaderAPI:
 
     def get_play_column_info(self, url: str) -> List:
         '''从视频播放页链接获取栏目标题和ID'''
+
+        def _url(link):
+            '''从原始页面链接获取视频名称及ID'''
+            # url = 'https://api.cntv.cn/NewVideoset/getVideoAlbumInfoByVideoId?id={}&serviceId=tvcctv'
+            # 如果 link == 'https://tv.cctv.com/2024/07/20/VIDEiGA59ClpEojV1wBSgw2Q240720.shtml?spm=C28340.Pu9TN9YUsfNZ.S93183.28'
+            # page_id should be VIDEiGA59ClpEojV1wBSgw2Q240720
+            page_id = pathlib.PurePosixPath(parse.urlsplit(link).path).stem
+            url = api_collection_url.format(page_id)
+            return url
+
         try:
-            response = requests.get(url, timeout=5)
-        except Exception:
-            return None
-        # 检测网页的编码，并重新编码为 utf-8
-        response.encoding = response.apparent_encoding
-        # 使用BeautifulSoup解析
-        soup = BeautifulSoup(response.text, "html.parser")
-        # 查找script
-        script_tags = soup.find_all("script")
-        import re
+            response = requests.get(_url(url), timeout=10)
+            # {
+            #     "data": {
+            #         "id": "VIDAVtVHU1IAcHgq95ohrCBJ240605",
+            #         "title": "《海天雄鹰》",
+            #         "url": "https://tv.cctv.com/2024/06/05/VIDAVtVHU1IAcHgq95ohrCBJ240605.shtml",
+            #         "image": "https://p1.img.cctvpic.com/photoAlbum/vms/image/de57dcd72ca7637a4b8e4fa299e67033.jpg",
+            #         "image2": "https://p1.img.cctvpic.com/photoAlbum/vms/image/de57dcd72ca7637a4b8e4fa299e67033.jpg",
+            #         "image3": "https://p1.img.cctvpic.com/photoAlbum/vms/image/de57dcd72ca7637a4b8e4fa299e67033.jpg",
+            #         "brief": "讲述了随着中国第一艘航母平台开始出海试航，中国海军成立了首支舰载机试飞大队，以谢振宇、余涛为代表的顶尖青年飞行员，在海军功勋飞行员秦大地大队长的带领下，以严谨的科学态度和时不我待的使命意识，攻克了舰载机着舰和起飞技术这一世界性难题。中国航母终于成军，谢振宇和余涛传承了老一辈的“海天雄鹰精神”，率领中国舰载机机群在辽阔海空上展翅翱翔。",
+            #         "fc": "电视剧",
+            #         "sc": "军旅",
+            #         "order": 1
+            #     }
+            # }
+            d = response.json()
+            if 'data' in d.keys():  # response 为 json 列表
+                result = [d['data']['title'], d['data']['id']]
+                return result
 
-        # 取第一个script标签
-        script = str(script_tags[0])
-        # 匹配标题和ID
-        match_title = re.search(r'var commentTitle\s*=\s*["\'](.*?)["\'];', script)
-        match_id = re.search(r'var column_id\s*=\s*["\'](.*?)["\'];', script)
-
-        if match_title and match_id:
-            # 对标题处理
-            match_title = match_title.group(1).split(" ")[0]
-
-            column_value = [match_title, match_id.group(1)]
-            return column_value
-        else:
-            return None
+        except Exception as e:
+            logger.error(f"获取合集信息出错: {e}")
+            return
 
 
 if __name__ == "__main__":

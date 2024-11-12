@@ -1,11 +1,12 @@
 import subprocess
-from PyQt5 import QtCore, QtWidgets
+from PyQt5 import QtCore, QtWidgets, QtGui
 from PyQt5.QtGui import QIcon, QPixmap, QMovie, QDesktopServices
 
 # from qt_material import apply_stylesheet
 
 from MainUI import Ui_MainWindow as MainUI
-from logger import CustomLogger
+
+# from logger import CustomLogger
 from api import CCTVVideoDownloaderAPI as API
 from download_engine import DownloadEngine as Engine
 from video_process import VideoProcess as Process
@@ -14,12 +15,41 @@ from AboutUI import Ui_Dialog as AboutUI
 from SettingUI import Ui_Dialog as SettingUI
 from DownloadUI import Ui_Dialog as DownloadUI
 from ConcatUI import Ui_Dialog as ConcatUI
+import pathlib
+import logging
+from settings import dump_config, load_config
 
 
-class CCTVVideoDownloader:
-    def __init__(self):
-        self._mainUI = None
-        self._SETTINGS = {}
+thisScript = pathlib.Path(__file__)
+root = thisScript.parent
+logLevel = logging.DEBUG
+logFile = thisScript.with_name('CCTVVideoDownloader.log')
+logging.getLogger("urllib3").setLevel(logging.WARNING)
+
+# fmt:off
+# Basic logging configuration
+logging.basicConfig(
+    level=logLevel,
+    format='%(asctime)s %(filename)s(%(lineno)04d) [%(levelname)-8s]: %(message)s',
+    handlers=[logging.FileHandler(logFile, mode='w', encoding='utf-8'), logging.StreamHandler()],
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+# fmt:on
+
+logger = logging.getLogger(__name__)
+
+
+class CCTVVideoDownloader(QtWidgets.QMainWindow, MainUI):
+    seasonsChanged = QtCore.pyqtSignal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+        self.ui = MainUI()
+        self.ui.setupUi(self)
+
+        # self = None
+        # self.config['settings'] = {}
         self._PROGRAMME = {}
 
         self._SELECT_ID = None  # 选中的栏目ID
@@ -29,31 +59,24 @@ class CCTVVideoDownloader:
         self.worker = Engine()
         self.process = Process()
 
-    def setup_ui(self) -> None:
-        '''初始化'''
-        # 初始化日志
-        self._logger = CustomLogger("CCTVVideoDownloader", "CCTVVideoDownloader.log")
-        self._logger.info("程序初始化...")
-        # 加载主UI
-        self._mainUI = QtWidgets.QMainWindow()
-        # 实例化主UI
-        self.main_ui = MainUI()
-        # 输出日志
-        self._logger.info("加载主UI...")
-        # 加载UI
-        self.main_ui.setupUi(self._mainUI)
-        # 锁定下载按钮
-        self.main_ui.pushButton.setEnabled(False)
-        # 设置表格只读
-        self.main_ui.tableWidget_Config.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
-        self.main_ui.tableWidget_List.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
-        # 设置标题
-        self._mainUI.setWindowTitle("央视频下载器")
-        # 设置图标
-        self._mainUI.setWindowIcon(QIcon(":/resources/cctvvideodownload.ico"))
+        self.fn_jsn_cfg = root.joinpath('config.json')
+        self.config = load_config(self.fn_jsn_cfg)
+        self.seasonsChanged.connect(self.onSeasonsChanged)
+        self.initUserInterface()
 
-        # 检查配置文件
-        self._checkout_config()
+    def initUserInterface(self):
+        self.ui.pushButton.setEnabled(False)
+        # 设置表格只读
+        self.ui.tableWidget_Config.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
+        # 开启右键菜单
+        self.ui.tableWidget_Config.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
+        self.ui.tableWidget_Config.customContextMenuRequested.connect(self.seasonMenu)
+        self.ui.tableWidget_Config.viewport().installEventFilter(self)
+        self.ui.tableWidget_List.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
+        # 设置标题
+        self.setWindowTitle("央视频下载器")
+        # 设置图标
+        self.setWindowIcon(QIcon(":/resources/cctvvideodownload.ico"))
 
         # 初始化
         self._flash_programme_list()
@@ -61,17 +84,109 @@ class CCTVVideoDownloader:
         # 连接信号与槽
         self._function_connect()
 
-        # 显示UI
-        self._mainUI.show()
-        self._logger.info("程序初始化完成")
+    @QtCore.pyqtSlot()
+    def onSeasonsChanged(self):
+        dump_config(self.config, self.fn_jsn_cfg)
+
+    # def setup_ui(self) -> None:
+    #     '''初始化'''
+    #     # 初始化日志
+    #     # logger = CustomLogger("CCTVVideoDownloader", "CCTVVideoDownloader.log")
+    #     logger.info("程序初始化...")
+    #     # 加载主UI
+    #     self = QtWidgets.QMainWindow()
+    #     # 实例化主UI
+    #     self.main_ui = MainUI()
+    #     # 输出日志
+    #     logger.info("加载主UI...")
+    #     # 加载UI
+    #     self.main_ui.setupUi(self)
+    #     # 锁定下载按钮
+    #     self.main_ui.pushButton.setEnabled(False)
+    #     # 设置表格只读
+    #     self.main_ui.tableWidget_Config.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
+    #     # 开启右键菜单
+    #     self.main_ui.tableWidget_Config.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
+    #     self.main_ui.tableWidget_Config.customContextMenuRequested.connect(self.seasonMenu)
+    #     self.main_ui.tableWidget_Config.viewport().installEventFilter(self)
+    #     self.main_ui.tableWidget_List.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
+    #     # 设置标题
+    #     self.setWindowTitle("央视频下载器")
+    #     # 设置图标
+    #     self.setWindowIcon(QIcon(":/resources/cctvvideodownload.ico"))
+
+    #     # 检查配置文件
+    #     # self._checkout_config()
+
+    #     # 初始化
+    #     self._flash_programme_list()
+
+    #     # 连接信号与槽
+    #     self._function_connect()
+
+    #     # 显示UI
+    #     self.show()
+    #     logger.info("程序初始化完成")
+
+    def addSeasonMenuItem(self, menu, item: QtWidgets.QTableWidgetItem, parent: QtWidgets.QTableWidget):
+        def remove_item(item, parent):
+            # logger.debug(f'isinstance(item, QTableWidgetItem)={isinstance(item, QtWidgets.QTableWidgetItem)}')
+            parent.removeRow(item.row())
+            self.seasonsChanged.emit()
+
+        def remove_all_item():
+            parent.clearContents()
+            self.config["programme"] = {}
+            self.seasonsChanged.emit()
+
+        act = QtWidgets.QAction(f"删除当前节目", self)
+        act.triggered.connect(lambda: remove_item(item=item, parent=parent))
+        menu.addAction(act)
+        act = QtWidgets.QAction(f"删除当前节目", self)
+        act.triggered.connect(remove_all_item)
+        menu.addAction(act)
+
+        # # 添加菜单项
+        # delete_menu_item = QtWidgets.QMenu("删除", self)
+        # parent.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
+        # parent.customContextMenuRequested.connect(self.delete_season_menu_item)
+        # act = QtGui.QAction("删除当前节目", self)
+        # act.triggered.connect(lambda: self.delete_current_season())
+        # delete_menu_item.addAction(act)
+        # act = QtGui.QAction("删除所有节目", self)
+        # act.triggered.connect(lambda: self.delete_all_seasons())
+        # delete_menu_item.addAction(act)
+        # menu.addMenu(delete_menu_item)
+
+    def eventFilter(self, source, event):
+        if (
+            event.type() == QtCore.QEvent.MouseButtonPress
+            and event.buttons() == QtCore.Qt.RightButton
+            and source is self.ui.tableWidget_Config.viewport()
+        ):
+            item = self.ui.tableWidget_Config.itemAt(event.pos())
+            # print('Global Pos:', event.globalPos())
+            if item is not None:
+                # print('Table Item:', item.row(), item.column())
+                self.menu = QtWidgets.QMenu(self)
+                logger.debug(f'isinstance(item, QTableWidgetItem)={isinstance(item, QtWidgets.QTableWidgetItem)}')
+                # self.menu.addAction(item.text())  # (QAction('test'))
+                self.addSeasonMenuItem(self.menu, item, self.ui.tableWidget_Config)
+
+                # menu.exec_(event.globalPos())
+        return super().eventFilter(source, event)
+
+    def seasonMenu(self, pos):
+        logger.debug(f"pos====== {pos}")
+        self.menu.exec_(self.ui.tableWidget_Config.mapToGlobal(pos))  # +++
 
     def _flash_programme_list(self) -> None:
         '''刷新节目列表'''
-        self._logger.info("刷新节目列表...")
+        logger.info("刷新节目列表...")
         # 检查更新节目单
-        self._checkout_config()
-        config = self._PROGRAMME
-        self.main_ui.tableWidget_Config.setRowCount(len(config))
+        # self._checkout_config()
+        config = self.config['programme']
+        self.ui.tableWidget_Config.setRowCount(len(config))
         # 遍历
         num = 0
         for i in config:
@@ -81,38 +196,41 @@ class CCTVVideoDownloader:
             # 加入表格
             item1 = QtWidgets.QTableWidgetItem(name)
             item2 = QtWidgets.QTableWidgetItem(id)
-            self.main_ui.tableWidget_Config.setItem(num, 0, item1)
-            self.main_ui.tableWidget_Config.setItem(num, 1, item2)
+            self.ui.tableWidget_Config.setItem(num, 0, item1)
+            self.ui.tableWidget_Config.setItem(num, 1, item2)
             num += 1
         # 更新
-        self.main_ui.tableWidget_Config.viewport().update()
-        self._logger.info("栏目列表刷新完成")
+        self.ui.tableWidget_Config.viewport().update()
+        logger.info("栏目列表刷新完成")
 
     def _flash_video_list(self) -> None:
         '''刷新视频列表'''
-        self._logger.info("刷新视频列表...")
+        logger.info("刷新视频列表...")
         if self._SELECT_ID != None:
-            if self._PROGRAMME != {}:
+            seasons = self.config['programme']
+            if seasons:
                 # 获取节目信息
                 video_information = self.api.get_video_list(self._SELECT_ID)
-                print(video_information)
                 if video_information is None:
-                    self._logger.info('无法解析列表')
+                    logger.error(f'无法解析列表: {self._SELECT_ID}')
                     return
                 self.VIDEO_INFO = video_information
-                self.main_ui.tableWidget_List.setRowCount(len(video_information))
-                self.main_ui.tableWidget_List.setColumnWidth(0, 300)
+                self.ui.tableWidget_List.setRowCount(len(video_information))
+                self.ui.tableWidget_List.setColumnWidth(0, 300)
+                # for i in range(len(video_information)):
+                #     item1 = QtWidgets.QTableWidgetItem(video_information[i][2])
+                #     self.ui.tableWidget_List.setItem(i, 0, item1)
                 for i in range(len(video_information)):
                     item1 = QtWidgets.QTableWidgetItem(video_information[i][2])
-                    self.main_ui.tableWidget_List.setItem(i, 0, item1)
-                self.main_ui.tableWidget_List.viewport().update()
+                    self.ui.tableWidget_List.setItem(i, 0, item1)
+                self.ui.tableWidget_List.viewport().update()
 
-                self._logger.info("视频列表刷新完成")
+                logger.info("视频列表刷新完成")
             else:
-                self._logger.error("节目单为空!")
+                logger.error("节目单为空!")
                 self._raise_warning("节目单为空!")
         else:
-            self._logger.error("未选中栏目而试图刷新列表")
+            logger.error("未选中栏目而试图刷新列表")
             self._raise_warning("您还未选择节目!")
 
     def _display_video_info(self) -> None:
@@ -120,31 +238,31 @@ class CCTVVideoDownloader:
             # 获取信息
             video_info = self.api.get_column_info(self._SELECT_INDEX)
             # 将信息显示到label
-            self.main_ui.label_title.setText(video_info['title'])
-            self.main_ui.label_introduce.setText(video_info['brief'])
+            self.ui.label_title.setText(video_info['title'])
+            self.ui.label_introduce.setText(video_info['brief'])
             time_new = video_info["time"].replace(" ", "\n")
-            self.main_ui.label_time.setText(time_new)
+            self.ui.label_time.setText(time_new)
             if video_info["image"] != None:
                 pixmap = QPixmap()
                 pixmap.loadFromData(video_info["image"])
-                self.main_ui.label_img.setPixmap(pixmap)
+                self.ui.label_img.setPixmap(pixmap)
             else:
-                self.main_ui.label_img.setText("图片加载失败")
+                self.ui.label_img.setText("图片加载失败")
                 self._raise_warning("图片获取失败")
-                self._logger.warning("图片获取失败")
+                logger.warning("图片获取失败")
         else:
             pass
 
         # 恢复下载按钮
-        self.main_ui.pushButton.setEnabled(True)
+        self.ui.pushButton.setEnabled(True)
 
     def _is_program_selected(self, r: int, c: int) -> None:
         # 获取ID
-        selected_item_id = self.main_ui.tableWidget_Config.item(r, 1).text()
+        selected_item_id = self.ui.tableWidget_Config.item(r, 1).text()
         # 获取名称
-        selected_item_name = self.main_ui.tableWidget_Config.item(r, 0).text()
+        selected_item_name = self.ui.tableWidget_Config.item(r, 0).text()
         # 输出日志
-        self._logger.info(f"选中栏目:{selected_item_name}")
+        logger.info(f"选中栏目:{selected_item_name}, 视频ID: {selected_item_id}")
         # 设置ID
         self._SELECT_ID = selected_item_id
 
@@ -152,9 +270,9 @@ class CCTVVideoDownloader:
 
     def _is_video_selected(self, r: int, c: int) -> None:
         # 获取INDEX
-        self._SELECT_INDEX = self.main_ui.tableWidget_List.currentRow()
+        self._SELECT_INDEX = self.ui.tableWidget_List.currentRow()
         # 输出日志
-        self._logger.info(f"选中节目索引:{self._SELECT_INDEX}")
+        logger.info(f"当前视频: {self._SELECT_INDEX}, ID: {333}")
         # 节目信息
         self._WILL_DOWNLOAD = {
             "name": self.VIDEO_INFO[self._SELECT_INDEX][2],
@@ -165,7 +283,7 @@ class CCTVVideoDownloader:
 
     def _open_save_location(self) -> None:
         '''打开文件保存位置'''
-        path = self._SETTINGS["file_save_path"]
+        path = self.config['settings']["file_save_path"]
         command = ["explorer", path]
         # 创建STARTUPINFO对象以隐藏命令行窗口
         startupinfo = subprocess.STARTUPINFO()
@@ -174,7 +292,7 @@ class CCTVVideoDownloader:
 
     def _dialog_setting(self) -> None:
         '''设置对话框'''
-        self._logger.info("打开设置")
+        logger.info("打开设置")
         self._dialog_setting_base = QtWidgets.QDialog()
         self.dialog_setting = SettingUI()
         self.dialog_setting.setupUi(self._dialog_setting_base)
@@ -186,8 +304,8 @@ class CCTVVideoDownloader:
         self.dialog_setting.spinBox.setMaximum(5)
         self.dialog_setting.spinBox.setMinimum(1)
         # 填充默认值
-        self.dialog_setting.lineEdit_file_save_path.setText(self._SETTINGS["file_save_path"])
-        self.dialog_setting.spinBox.setValue(int(self._SETTINGS["threading_num"]))
+        self.dialog_setting.lineEdit_file_save_path.setText(self.config['settings']["file_save_path"])
+        self.dialog_setting.spinBox.setValue(int(self.config['settings']["threading_num"]))
 
         # 绑定按钮
         def open_file_save_path():
@@ -201,18 +319,18 @@ class CCTVVideoDownloader:
         def save_settings():
             file_save_path = self.dialog_setting.lineEdit_file_save_path.text()
             thread_num = self.dialog_setting.spinBox.value()
-            self._SETTINGS["file_save_path"] = file_save_path
-            self._SETTINGS["threading_num"] = str(thread_num)
-            self._logger.info(f"保存设置:{self._SETTINGS}")
+            self.config['settings']["file_save_path"] = file_save_path
+            self.config['settings']["threading_num"] = str(thread_num)
+            logger.info(f"保存设置:{self.config['settings']}")
             # 更新配置
             import json
 
             with open("config.json", "r", encoding="utf-8") as f:
                 config = json.loads(f.read())
-            config["settings"] = self._SETTINGS
+            config["settings"] = self.config['settings']
             with open("config.json", "w", encoding="utf-8") as f:
                 f.write(json.dumps(config, indent=4))
-            self._logger.info("配置已更新")
+            logger.info("配置已更新")
 
         self.dialog_setting.pushButton_open.clicked.connect(open_file_save_path)
         self.dialog_setting.buttonBox.accepted.connect(save_settings)
@@ -221,13 +339,13 @@ class CCTVVideoDownloader:
 
     def _dialog_download(self) -> None:
         '''下载对话框'''
-        self._logger.info("开始下载")
-        self._logger.info(f"使用线程数:{self._SETTINGS['threading_num']}")
+        logger.info("开始下载")
+        logger.info(f"使用线程数:{self.config['settings']['threading_num']}")
         # 锁定下载按钮
-        self.main_ui.pushButton.setEnabled(False)
+        self.ui.pushButton.setEnabled(False)
         # 获取下载视频参数
         urls = self.api.get_m3u8_urls_450(self._WILL_DOWNLOAD["guid"])
-        file_save_path = self._SETTINGS["file_save_path"]
+        file_save_path = self.config['settings']["file_save_path"]
         name = self._WILL_DOWNLOAD["name"]
         self._dialog_download_base = QtWidgets.QDialog()
         self._dialog_concat_base = QtWidgets.QDialog()
@@ -235,7 +353,7 @@ class CCTVVideoDownloader:
         self.dialog_concat = ConcatUI()
         self.dialog_download.setupUi(self._dialog_download_base)
         self._dialog_download_base.closeEvent = lambda event: self.worker.quit()
-        self._dialog_download_base.closeEvent = lambda event: self.main_ui.pushButton.setEnabled(True)
+        self._dialog_download_base.closeEvent = lambda event: self.ui.pushButton.setEnabled(True)
         # 设置模态
         self._dialog_download_base.setModal(True)
         self._dialog_concat_base.setModal(True)
@@ -258,30 +376,30 @@ class CCTVVideoDownloader:
             dialog.move(center_point.x() - dialog.width() // 2, center_point.y() - dialog.height() // 2)
 
         # 在显示对话框之前调用函数设定位置
-        center_dialog_on_main_window(self._dialog_download_base, self._mainUI)
+        center_dialog_on_main_window(self._dialog_download_base, self)
         self._dialog_download_base.show()
 
         self._progress_dict = {i: 0 for i in range(len(urls))}
 
         # 开始下载
-        self.worker.transfer(name, urls, file_save_path, int(self._SETTINGS["threading_num"]))
+        self.worker.transfer(name, urls, file_save_path, int(self.config['settings']["threading_num"]))
         self.worker.start()
 
         def video_concat():
-            self._logger.info("开始视频拼接")
-            self.process.transfer(self._SETTINGS["file_save_path"], self._WILL_DOWNLOAD["name"])
+            logger.info("开始视频拼接")
+            self.process.transfer(self.config['settings']["file_save_path"], self._WILL_DOWNLOAD["name"])
             self.dialog_concat.setupUi(self._dialog_concat_base)
             # 在显示对话框之前调用函数设定位置
-            center_dialog_on_main_window(self._dialog_concat_base, self._mainUI)
+            center_dialog_on_main_window(self._dialog_concat_base, self)
             self._dialog_concat_base.show()
             self.process.concat()
             self.process.concat_finished.connect(finished)
 
         def finished(flag: bool):
             if flag:
-                self._logger.info("视频拼接完成")
+                logger.info("视频拼接完成")
                 # 解锁下载按钮
-                self.main_ui.pushButton.setEnabled(True)
+                self.ui.pushButton.setEnabled(True)
                 self._dialog_concat_base.close()
 
         def display_info(info: list):
@@ -307,7 +425,7 @@ class CCTVVideoDownloader:
             self.dialog_download.tableWidget.viewport().update()
 
             if total_progress == 100:
-                self._logger.info("下载完成")
+                logger.info("下载完成")
                 self._dialog_download_base.close()
                 # 调用拼接
                 video_concat()
@@ -325,7 +443,7 @@ class CCTVVideoDownloader:
     def _dialog_about(self) -> None:
         '''关于对话框'''
         # 输出日志
-        self._logger.info("打开关于")
+        logger.info("打开关于")
         self._dialog_about_base = QtWidgets.QDialog()
         self.dialog_about = AboutUI()
         self.dialog_about.setupUi(self._dialog_about_base)
@@ -346,7 +464,7 @@ class CCTVVideoDownloader:
 
     def _dialog_import(self) -> None:
         '''节目导入对话框'''
-        self._logger.info("打开节目导入")
+        logger.info("打开节目导入")
         self._dialog_import_base = QtWidgets.QDialog()
         self.dialog_import = ImportUI()
         self.dialog_import.setupUi(self._dialog_import_base)
@@ -355,6 +473,7 @@ class CCTVVideoDownloader:
         self._dialog_import_base.show()
         url = None
 
+        # 此处获取视频列表
         def url():
             # 获取值
             url = self.dialog_import.lineEdit.text()
@@ -372,7 +491,7 @@ class CCTVVideoDownloader:
                 # 检查 id 是否已经存在
                 for prog in config["programme"].values():
                     if prog["id"] == column_info[1]:
-                        self._logger.warning(f"节目ID [{column_info[1]}] 已存在")
+                        logger.warning(f"节目ID [{column_info[1]}] 已存在")
                         return
 
                 config["programme"][str(max_key)] = {"name": column_info[0], "id": column_info[1]}
@@ -382,78 +501,67 @@ class CCTVVideoDownloader:
 
                 self._flash_programme_list()
 
-                self._logger.info(f"导入节目:{column_info[0]}")
+                logger.info(f"导入节目:{column_info[0]}")
 
         self.dialog_import.buttonBox.accepted.connect(url)
 
     def _function_connect(self) -> None:
         '''连接信号与槽'''
         # 绑定退出
-        self.main_ui.actionexit.triggered.connect(self._mainUI.close)
+        self.ui.actionexit.triggered.connect(self.close)
         # 绑定刷新按钮
-        self.main_ui.flash_list.clicked.connect(self._flash_video_list)
-        self.main_ui.flash_program.clicked.connect(self._flash_programme_list)
+        self.ui.flash_list.clicked.connect(self._flash_video_list)
+        self.ui.flash_program.clicked.connect(self._flash_programme_list)
         # 绑定栏目表格点击事件
-        self.main_ui.tableWidget_Config.cellClicked.connect(self._is_program_selected)
+        self.ui.tableWidget_Config.cellClicked.connect(self._is_program_selected)
         # 绑定节目表格点击事件
-        self.main_ui.tableWidget_List.cellClicked.connect(self._is_video_selected)
+        self.ui.tableWidget_List.cellClicked.connect(self._is_video_selected)
         # 绑定导入
-        self.main_ui.actionimport.triggered.connect(self._dialog_import)
+        self.ui.actionimport.triggered.connect(self._dialog_import)
         # 绑定关于
-        self.main_ui.actionabout.triggered.connect(self._dialog_about)
+        self.ui.actionabout.triggered.connect(self._dialog_about)
         # 绑定打开文件保存位置
-        self.main_ui.actionfile.triggered.connect(self._open_save_location)
+        self.ui.actionfile.triggered.connect(self._open_save_location)
         # 绑定设置
-        self.main_ui.actionsetting.triggered.connect(self._dialog_setting)
+        self.ui.actionsetting.triggered.connect(self._dialog_setting)
         # 绑定下载
-        self.main_ui.pushButton.clicked.connect(self._dialog_download)
+        self.ui.pushButton.clicked.connect(self._dialog_download)
 
-    def _checkout_config(self) -> None:
-        '''检查配置文件'''
-        import json, os
+    # def _checkout_config(self) -> None:
+    #     '''检查配置文件'''
+    #     import json
 
-        if not os.path.exists("./config.json"):
-            self._logger.warning("配置文件不存在")
-            from settings import DEFAULT_CONFIG
+    #     jsn_cfg = root.joinpath("config.json")
+    #     if not jsn_cfg.exists():
 
-            # 创建配置文件
-            try:
-                with open("config.json", "w+", encoding="utf-8") as f:
-                    f.write(json.dumps(DEFAULT_CONFIG))
-                    self._logger.info("创建配置文件成功")
-            except Exception as e:
-                self._logger.error("创建配置文件失败")
-                self._logger.debug(f"错误详情:{e}")
-                self._raise_error(e)
-                return
-        try:
-            with open("config.json", "r", encoding="utf-8") as f:
-                # 读取配置文件
-                config = json.loads(f.read())
-                self._SETTINGS = config["settings"]
-                self._PROGRAMME = config["programme"]
-                self._logger.info("读取配置文件成功")
-        except Exception as e:
-            self._logger.error("读取配置文件失败")
-            self._logger.debug(f"错误详情:{e}")
-            self._raise_error(e)
-            return
+    #     try:
+    #         with open("config.json", "r", encoding="utf-8") as f:
+    #             # 读取配置文件
+    #             config = json.loads(f.read())
+    #             self.config['settings'] = config["settings"]
+    #             self._PROGRAMME = config["programme"]
+    #             logger.info("读取配置文件成功")
+    #     except Exception as e:
+    #         logger.error("读取配置文件失败")
+    #         logger.debug(f"错误详情:{e}")
+    #         self._raise_error(e)
+    #         return
 
     def _raise_error(self, error: Exception) -> None:
         '''错误抛出,仅抛出引发程序异常退出的错误'''
-        self._logger.critical("程序异常退出")
-        self._logger.critical(f"错误详情:{error}")
+        logger.critical("程序异常退出")
+        logger.critical(f"错误详情:{error}")
         # 给出错误提示窗口
         import sys, os
 
         path = os.getcwd()
         path = os.path.join(path, "CCTVVideoDownloader.log")
-        QtWidgets.QMessageBox.critical(self._mainUI, "错误", f"错误详情:\n{error}\n请检查日志文件\n{path}")
+        QtWidgets.QMessageBox.critical(self, "错误", f"错误详情:\n{error}\n请检查日志文件\n{path}")
         sys.exit(1)
 
     def _raise_warning(self, warning: str) -> None:
         '''警告抛出,抛出警告'''
-        QtWidgets.QMessageBox.warning(self._mainUI, "警告", warning)
+        QtWidgets.QMessageBox.warning(self, "警告", warning)
 
 
 def main():
@@ -468,8 +576,8 @@ def main():
     # 实例化主类
     CTVD = CCTVVideoDownloader()
     # 初始化UI
-    CTVD.setup_ui()
-    # 进入主循环
+    CTVD.show()
+
     sys.exit(app.exec_())
 
 
